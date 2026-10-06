@@ -1,0 +1,79 @@
+import importlib
+import os
+import pandas as pd # type: ignore
+import time
+
+try:
+    ccxt = importlib.import_module('ccxt')
+except ImportError as exc:
+    raise RuntimeError(
+        'The ccxt package is required. Install it with: python -m pip install ccxt'
+    ) from exc
+
+# 1. Initialize Exchange (Using Binance Sandbox/Testnet for Safety)
+exchange = ccxt.binance({
+    'apiKey': os.getenv('BINANCE_API_KEY', ''),
+    'secret': os.getenv('BINANCE_API_SECRET', ''),
+    'enableRateLimit': True,
+})
+
+# Enable Sandbox/Testnet mode (DO NOT use real money while testing!)
+exchange.set_sandbox_mode(True)
+
+SYMBOL = 'BTC/USDT'
+TIMEFRAME = '1m'  # 1-minute candles for quick testing
+SHORT_SMA = 5
+LONG_SMA = 20
+
+def fetch_data():
+    """Fetch OHLCV (Open, High, Low, Close, Volume) data from exchange."""
+    ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME, limit=50)
+    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    df['close'] = df['close'].astype(float)
+    return df
+
+def calculate_indicators(df):
+    """Calculate Moving Averages."""
+    df['sma_short'] = df['close'].rolling(window=SHORT_SMA).mean()
+    df['sma_long'] = df['close'].rolling(window=LONG_SMA).mean()
+    return df
+
+def run_bot():
+    print(f"Starting Bot for {SYMBOL}...")
+    position = False  # Track if currently holding
+
+    while True:
+        try:
+            df = fetch_data()
+            df = calculate_indicators(df)
+
+            # Get latest values
+            latest = df.iloc[-1]
+            previous = df.iloc[-2]
+
+            print(f"Price: ${latest['close']} | Short SMA: {latest['sma_short']:.2f} | Long SMA: {latest['sma_long']:.2f}")
+
+            # Bullish Crossover (BUY)
+            if previous['sma_short'] <= previous['sma_long'] and latest['sma_short'] > latest['sma_long']:
+                if not position:
+                    print("🟢 BUY SIGNAL DETECTED!")
+                    # Place a market buy order (Simulated or Testnet)
+                    # order = exchange.create_market_buy_order(SYMBOL, 0.001)
+                    position = True
+
+            # Bearish Crossover (SELL)
+            elif previous['sma_short'] >= previous['sma_long'] and latest['sma_short'] < latest['sma_long']:
+                if position:
+                    print("🔴 SELL SIGNAL DETECTED!")
+                    # Place a market sell order
+                    # order = exchange.create_market_sell_order(SYMBOL, 0.001)
+                    position = False
+
+            time.sleep(60)  # Wait 1 minute before checking the next candle
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            time.sleep(10)
+
+if __name__ == '__main__':
+    run_bot()
